@@ -11,7 +11,7 @@
     "autocomplete"
   ],
   "license": "MIT",
-  "author": "dhruvanand",
+  "author": "dhruv-anand-aintech",
   "type": "module",
   "exports": {
     "./tui": "./tui.ts"
