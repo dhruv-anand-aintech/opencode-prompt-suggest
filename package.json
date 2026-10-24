@@ -29,14 +29,23 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@opencode/plugin": ">=2.1.0",
-    "@opentui/core": ">=0.6.6",
-    "@opentui/solid": ">=0.6.6",
-    "solid-js": ">=1.9.0"
+    "@opencode/plugin": ">=2.1.0"
   },
   "peerDependenciesMeta": {
     "@opencode/plugin": {
       "optional": true
     }
+  },
+  "dependencies": {
+    "@opentui/solid": ">=0.6.6",
+    "solid-js": ">=1.9.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dhruv-anand-aintech/opencode-prompt-suggest.git"
+  },
+  "homepage": "https://github.com/dhruv-anand-aintech/opencode-prompt-suggest#readme",
+  "bugs": {
+    "url": "https://github.com/dhruv-anand-aintech/opencode-prompt-suggest/issues"
   }
 }

@@ -92,16 +92,22 @@ Using a small, fast model is the main cost lever:
 ## Install
 
 ```sh
-opencode plugin add opencode-prompt-suggest
+opencode plugin add github:dhruv-anand-aintech/opencode-prompt-suggest
 ```
 
-Or from source by copying this folder to `~/.config/opencode/plugins/prompt-suggest`,
-which is discovered automatically with no config entry.
+Pin a revision if you prefer:
 
-`@opentui/solid` and `solid-js` are real peer dependencies: the plugin imports
-the OpenTUI JSX runtime directly so it loads correctly from `node_modules`
-(where OpenCode's JSX transform is not applied). Package managers install them
-automatically. `@opencode/plugin` is optional because the TUI provides it.
+```sh
+opencode plugin add github:dhruv-anand-aintech/opencode-prompt-suggest#v0.1.0
+```
+
+Or copy this folder to `~/.config/opencode/plugins/prompt-suggest`, which is
+discovered automatically with no config entry.
+
+`@opentui/solid` and `solid-js` are regular dependencies, not peers. The plugin
+imports the OpenTUI JSX runtime directly because OpenCode does not apply its JSX
+transform to plugins loaded from `node_modules`; without its own copy the import
+would fail. `@opencode/plugin` is an optional peer because the TUI provides it.
 
 Configuration is read from `~/.config/opencode/prompt-suggest.json` first, then
 from the bundled `config.json`, then any `options` passed in `opencode.json`.
