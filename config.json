@@ -1,0 +1,11 @@
+{
+  "auto": true,
+  "autoDelayMs": 900,
+  "maxMessages": 40,
+  "maxContextChars": 20000,
+  "maxSegmentChars": 4000,
+  "includeToolCalls": true,
+  "includeReasoning": false,
+  "timeoutMs": 20000,
+  "debug": false
+}

@@ -1,0 +1,42 @@
+{
+  "name": "opencode-prompt-suggest",
+  "version": "0.1.0",
+  "description": "Ghost-text next-prompt suggestions for the OpenCode TUI",
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "tui",
+    "prompt",
+    "suggestion",
+    "autocomplete"
+  ],
+  "license": "MIT",
+  "author": "dhruvanand",
+  "type": "module",
+  "exports": {
+    "./tui": "./tui.ts"
+  },
+  "files": [
+    "tui.ts",
+    "config.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "opencode": ">=2.1.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@opencode/plugin": ">=2.1.0",
+    "@opentui/core": ">=0.6.6",
+    "@opentui/solid": ">=0.6.6",
+    "solid-js": ">=1.9.0"
+  },
+  "peerDependenciesMeta": {
+    "@opencode/plugin": {
+      "optional": true
+    }
+  }
+}
