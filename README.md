@@ -18,6 +18,11 @@ session, no tools, and nothing written to session history, so the conversation i
 never polluted. Context is capped by `maxContextChars` (default 20,000) and
 `maxSegmentChars` (default 4,000 per message).
 
+If that endpoint is missing (a client newer than its server), the plugin
+transparently retries through the version-stable `client.session.generate`
+endpoint, which reads the conversation from the session itself. A short error is
+shown only when both routes fail.
+
 Because it calls the API directly, no separate API key is needed - it uses the
 provider credentials OpenCode already has. By default the suggestion is
 generated with the session's currently selected model; set a cheaper one in
@@ -61,7 +66,7 @@ as **Suggest next prompt** in the command palette (`ctrl+p`).
 
 ## Configuration
 
-`config.json` beside `tui.tsx`, or `~/.config/opencode/prompt-suggest.json`
+`config.json` beside `tui.ts`, or `~/.config/opencode/prompt-suggest.json`
 (which wins if both exist):
 
 | Key                | Default | Meaning                                             |
@@ -89,6 +94,17 @@ Using a small, fast model is the main cost lever:
 }
 ```
 
+`model` also accepts a `variant` when the selected model exposes one.
+
+## Troubleshooting
+
+`suggest: UnsupportedContentType` means the TUI client and its background
+service are on different OpenCode versions: the 2.2 client calls
+`/api/experimental/generate/text`, which a 2.1 server answers with a 404 that
+has no content type, so the client cannot decode the error. This release retries
+through the version-stable `session.generate` endpoint automatically. If both
+routes fail, restart the service (`opencode service restart`) or update OpenCode.
+
 ## Install
 
 ```sh
@@ -98,7 +114,7 @@ opencode plugin add github:dhruv-anand-aintech/opencode-prompt-suggest
 Pin a revision if you prefer:
 
 ```sh
-opencode plugin add github:dhruv-anand-aintech/opencode-prompt-suggest#v0.1.0
+opencode plugin add github:dhruv-anand-aintech/opencode-prompt-suggest#v0.1.1
 ```
 
 Or copy this folder to `~/.config/opencode/plugins/prompt-suggest`, which is

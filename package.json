@@ -1,6 +1,6 @@
 {
   "name": "opencode-prompt-suggest",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Ghost-text next-prompt suggestions for the OpenCode TUI",
   "keywords": [
     "opencode",

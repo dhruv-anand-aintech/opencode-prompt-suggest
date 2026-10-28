@@ -96,6 +96,52 @@ function clamp(text: string, limit: number): string {
   return `${collapsed.slice(0, Math.max(0, limit - 1)).trimEnd()}…`
 }
 
+/**
+ * The stateless generation endpoint moved from `/api/experimental/generate`
+ * to `/api/experimental/generate/text` in OpenCode 2.2. When a newer client
+ * talks to an older server, the new path answers 404 with no content type, and
+ * the client's error decoder reports that as `UnsupportedContentType` instead
+ * of a useful status. `session.generate` has been served by every 2.1+ server,
+ * so it is the compatibility fallback for that version skew.
+ */
+function responseText(response: unknown): string {
+  if (!response || typeof response !== "object") return ""
+  const value = response as { text?: unknown; data?: { text?: unknown } }
+  if (typeof value.text === "string") return value.text
+  if (typeof value.data?.text === "string") return value.data.text
+  return ""
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function isProtocolError(message: string): boolean {
+  return /UnsupportedContentType|MalformedResponse|UnexpectedStatus:?\s*404|404 Not Found|HTTP 404/i.test(message)
+}
+
+function isTimeout(message: string): boolean {
+  return /abort|timed? ?out/i.test(message)
+}
+
+function isTransient(message: string): boolean {
+  return /did not finish activating|Transport|ECONNREFUSED|ECONNRESET|socket hang up|fetch failed|network error|service unavailable/i.test(
+    message,
+  )
+}
+
+/** Keeps the one-line error slot readable instead of showing internal tags. */
+function describe(message: string): string {
+  if (/UnsupportedContentType/.test(message)) return "server/client version mismatch — update OpenCode"
+  if (/UnexpectedStatus|MalformedResponse/.test(message)) return "server returned an unexpected response"
+  if (/did not finish activating/i.test(message)) return "plugins are still starting"
+  if (/Transport|ECONNREFUSED|ECONNRESET|socket hang up|fetch failed|network error/i.test(message)) {
+    return "cannot reach the OpenCode server"
+  }
+  if (isTimeout(message)) return "timed out"
+  return message.length > 80 ? `${message.slice(0, 79)}…` : message
+}
+
 function readConfig(): Record<string, unknown> {
   const home = process.env.XDG_CONFIG_HOME || join(os.homedir(), ".config")
   for (const path of [join(home, "opencode", `${ID}.json`), join(dirname(PLUGIN_FILE), "config.json")]) {
@@ -150,14 +196,103 @@ export default Plugin.define({
       return route.type === "session" ? route.sessionID : undefined
     }
 
-    const modelRef = () => {
-      const override = options.model as { providerID?: string; id?: string } | undefined
+    type ModelRef = { providerID: string; id: string; variant?: string }
+
+    const modelRef = (): ModelRef | undefined => {
+      const override = options.model as { providerID?: string; id?: string; variant?: string } | undefined
       if (override?.providerID && override?.id) {
-        return { providerID: override.providerID, id: override.id }
+        return {
+          providerID: override.providerID,
+          id: override.id,
+          ...(override.variant ? { variant: override.variant } : {}),
+        }
       }
-      const selected = context.ui.model.current()
+      const selected = context.ui.model.current() as
+        | { providerID: string; modelID: string; variant?: string }
+        | undefined
       if (!selected) return undefined
-      return { providerID: selected.providerID, id: selected.modelID }
+      return {
+        providerID: selected.providerID,
+        id: selected.modelID,
+        ...(selected.variant ? { variant: selected.variant } : {}),
+      }
+    }
+
+    type GenerateCall = (
+      input: { prompt: string; model?: ModelRef },
+      options?: { signal?: AbortSignal },
+    ) => Promise<unknown>
+    type SessionGenerateCall = (
+      input: { sessionID: string; prompt: string },
+      options?: { signal?: AbortSignal },
+    ) => Promise<unknown>
+
+    // Remember which endpoint worked so version skew costs one probe, not one
+    // failed request per turn.
+    let generateRoute: "generate.text" | "session.generate" | undefined
+
+    class RouteUnavailableError extends Error {
+      constructor(message: string) {
+        super(message)
+        this.name = "RouteUnavailableError"
+      }
+    }
+
+    /**
+     * Tries the stateless `generate.text` endpoint, then falls back to the
+     * older `session.generate` endpoint that every 2.1+ server serves. A 2.2
+     * client talking to a 2.1 server gets a content-type-less 404 from the
+     * newer path, which surfaces as `UnsupportedContentType`; retrying through
+     * the session endpoint keeps suggestions working instead of showing that
+     * tag. The session endpoint already includes the conversation, so only the
+     * instructions are sent there, never the transcript a second time.
+     */
+    async function generate(
+      sessionID: string,
+      history: string,
+      signal: AbortSignal,
+    ): Promise<{ text: string; route: "generate.text" | "session.generate" }> {
+      const client = context.client as unknown as {
+        generate?: { text?: GenerateCall }
+        session?: { generate?: SessionGenerateCall }
+      }
+
+      const text: GenerateCall | undefined = client.generate?.text
+      const scoped: SessionGenerateCall | undefined = client.session?.generate
+
+      const stateless = async () => {
+        if (typeof text !== "function") throw new RouteUnavailableError("generate.text is not available")
+        const model = modelRef()
+        const response = await text.call(
+          client.generate,
+          { prompt: `${INSTRUCTIONS}\n\n<conversation>\n${history}\n</conversation>`, ...(model ? { model } : {}) },
+          { signal },
+        )
+        return { text: responseText(response), route: "generate.text" as const }
+      }
+
+      const scopedCall = async () => {
+        if (typeof scoped !== "function") throw new RouteUnavailableError("session.generate is not available")
+        const response = await scoped.call(client.session, { sessionID, prompt: INSTRUCTIONS }, { signal })
+        return { text: responseText(response), route: "session.generate" as const }
+      }
+
+      const primary = generateRoute === "session.generate" ? scopedCall : stateless
+      const secondary = generateRoute === "session.generate" ? stateless : scopedCall
+
+      try {
+        const result = await primary()
+        generateRoute = result.route
+        return result
+      } catch (error) {
+        if (signal.aborted) throw error
+        const message = messageOf(error)
+        if (!(error instanceof RouteUnavailableError) && !isProtocolError(message)) throw error
+        debugLog(`falling back to the other generate endpoint after: ${message}`)
+        const result = await secondary()
+        generateRoute = result.route
+        return result
+      }
     }
 
     /**
@@ -328,43 +463,44 @@ export default Plugin.define({
           return
         }
 
-        const model = modelRef()
         const controller = new AbortController()
         const timer = setTimeout(() => controller.abort(), timeoutMs)
         let text = ""
+        let via = ""
         try {
-          const response = await context.client.generate.text(
-            {
-              prompt: `${INSTRUCTIONS}\n\n<conversation>\n${history}\n</conversation>`,
-              ...(model ? { model } : {}),
-            },
-            { signal: controller.signal },
-          )
-          text = response.text
+          const result = await generate(sessionID, history, controller.signal)
+          text = result.text
+          via = result.route
         } finally {
           clearTimeout(timer)
         }
 
         if (current !== run) return
         const cleaned = clean(text)
-        debugLog(`${stats}\n--- raw ---\n${text}\n--- cleaned ---\n${cleaned}`)
+        debugLog(`${stats} via=${via}\n--- raw ---\n${text}\n--- cleaned ---\n${cleaned}`)
         setState((draft) => {
           draft.busy = false
           draft.text = cleaned === "NONE" ? "" : cleaned
         })
       } catch (error) {
         if (current !== run) return
-        const message = error instanceof Error ? error.message : String(error)
-        // Right after startup the location's plugins may still be activating.
-        if (/did not finish activating/i.test(message) && attempt < 2) {
-          setTimeout(() => void suggest(sessionID, attempt + 1), 1500)
+        const message = messageOf(error)
+        // A transient failure (startup activation or a server restart) is
+        // worth retrying; a timeout is not.
+        if (!isTimeout(message) && isTransient(message) && attempt < 2) {
+          debugLog(`retrying after: ${message}`)
+          setTimeout(() => {
+            if (run === current && activeSession() === sessionID) void suggest(sessionID, attempt + 1)
+          }, 700 + attempt * 800)
           return
         }
         debugLog(`error: ${message}`)
         setState((draft) => {
           draft.busy = false
           draft.text = ""
-          draft.error = message.slice(0, 120)
+          // Timeouts are expected on slow models and would only flicker. The
+          // rest get a short, readable description instead of a client tag.
+          draft.error = isTimeout(message) ? "" : describe(message)
         })
       }
     }
@@ -473,6 +609,9 @@ export default Plugin.define({
         context.data.on("session.execution.succeeded", (event) => {
           const sessionID = event.data.sessionID
           setTimeout(() => {
+            // Only suggest for the session the user is looking at; a finished
+            // background tab would spend tokens on a suggestion nobody sees.
+            if (activeSession() !== sessionID) return
             try {
               if (context.data.session.status(sessionID) === "running") return
             } catch {
