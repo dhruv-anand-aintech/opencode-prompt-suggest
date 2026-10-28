@@ -13,7 +13,10 @@ import { jsx } from "@opentui/solid/jsx-runtime"
  *
  * The suggestion comes from one stateless `generate.text` call over a
  * priority-selected transcript: no new session, no tools, nothing written to
- * session history, so the conversation is never polluted.
+ * session history, so the conversation is never polluted. If that endpoint is
+ * unavailable (an older server behind a newer client), it falls back to the
+ * version-stable `session.generate` call that reads the same conversation from
+ * the session itself.
  *
  * Elements are built with the `jsx` factory rather than JSX syntax on purpose.
  * A plugin loaded from `node_modules` or an explicit path does not get the
